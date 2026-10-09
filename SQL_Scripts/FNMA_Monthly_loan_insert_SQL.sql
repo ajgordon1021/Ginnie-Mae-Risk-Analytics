@@ -1,0 +1,4 @@
+INSERT INTO fnma_monthly_mbs_loans (loan_identifier, reporting_date, servicer_name,current_interest_rate, current_actual_upb,loan_age,remaining_months_to_maturity, current_loan_delinquency_status)
+SELECT t.loan_identifier,to_date(lpad(trim(t.monthly_reporting_period), 6 , '0'),'MMYYYY'), t.servicer_name,t.current_interest_rate,t.current_actual_upb,t.loan_age,t.remaining_months_to_maturity,NULLIF(t.current_loan_delinquency_status,'XX')::smallint
+FROM fnma_sf_loan_performance t WHERE NOT EXISTS (SELECT 1 FROM fnma_monthly_mbs_loans t2 
+WHERE t2.loan_identifier = t.loan_identifier AND t2.reporting_date = to_date(lpad(trim(t.monthly_reporting_period), 6 , '0'),'MMYYYY'));

@@ -19,6 +19,7 @@ def get_connection():
         f'Uid={USERNAME};'
         f'Pwd={{{password}}};'
         'Encrypt=yes;'
-        'TrustServerCertificate=no;'
-        'Connection Timeout=30;'
+        'TrustServerCertificate=no;',
+        # Login timeout in seconds; long enough for a paused serverless database to wake up
+        timeout=60,
     )

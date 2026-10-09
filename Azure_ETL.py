@@ -1,21 +1,9 @@
-import pyodbc
 from datetime import datetime
 
-# Azure SQL connection
-server = 'ginnie-mae-risk-db.database.windows.net'
-database = 'Ginnie_Mae_Risk'
-username = 'andrewgordon'
-password = 'REMOVED'  
+from db_config import get_connection
 
-conn = pyodbc.connect(
-    f'DRIVER={{ODBC Driver 18 for SQL Server}};'
-    f'SERVER={server};'
-    f'DATABASE={database};'
-    f'UID={username};'
-    f'PWD={password};'
-    f'Encrypt=yes;'
-    f'TrustServerCertificate=no;'
-)
+# Azure SQL connection
+conn = get_connection()
 cur = conn.cursor()
 
 # Read the file

@@ -1,14 +1,11 @@
-import psycopg2
 import json
 import sys
 import urllib.request
 
-# Connect to local database for now - we'll switch to Azure later
-conn = psycopg2.connect(
-    host="localhost",
-    database="Ginnie_Mae_Concentration_Risk",
-    user="katherinezeller"
-)
+from db_config import get_connection
+
+# Azure SQL connection
+conn = get_connection()
 
 
 # Each scenario type has stress assumptions for:
@@ -160,7 +157,7 @@ def get_portfolio_exposure(state=None):
                 SUM(CASE WHEN months_delinquent > 0 THEN 1 ELSE 0 END) as current_dq_loans,
                 COALESCE(SUM(CASE WHEN months_delinquent > 0 THEN unpaid_principal_balance ELSE 0 END), 0) as current_dq_upb
             FROM pool_loans
-            WHERE property_state = %s
+            WHERE property_state = ?
         """, (state,))
     else:
         cur.execute("""
@@ -196,16 +193,15 @@ def get_top_issuers_in_area(state):
     """Get the most exposed issuers in the affected area"""
     cur = conn.cursor()
     cur.execute("""
-        SELECT 
+        SELECT TOP 5
             i.issuer_name,
             COUNT(*) as loan_count,
             SUM(p.unpaid_principal_balance) as issuer_upb
         FROM pool_loans p
         JOIN issuers i ON p.issuer_number = i.issuer_number
-        WHERE p.property_state = %s
+        WHERE p.property_state = ?
         GROUP BY i.issuer_name
         ORDER BY issuer_upb DESC
-        LIMIT 5
     """, (state,))
     
     results = []
@@ -223,15 +219,14 @@ def get_top_msas_in_area(state):
     """Get the most exposed MSAs in the affected area"""
     cur = conn.cursor()
     cur.execute("""
-        SELECT 
+        SELECT TOP 5
             msa,
             COUNT(*) as loan_count,
             SUM(unpaid_principal_balance) as msa_upb
         FROM pool_loans
-        WHERE property_state = %s AND msa IS NOT NULL AND msa != ''
+        WHERE property_state = ? AND msa IS NOT NULL AND msa != ''
         GROUP BY msa
         ORDER BY msa_upb DESC
-        LIMIT 5
     """, (state,))
     
     results = []

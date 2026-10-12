@@ -1,16 +1,13 @@
-import psycopg2
 import json
 import urllib.request
 import csv
 import os
 from datetime import datetime, timedelta
 
+from db_config import get_connection
 
-conn = psycopg2.connect(
-    host="localhost",
-    database="Ginnie_Mae_Concentration_Risk",
-    user="katherinezeller"
-)
+
+conn = get_connection()
 
 
 
@@ -120,7 +117,7 @@ def analyze_disaster_impact(state, disaster_date_str, months_before=3, months_af
     cur.execute("""
         SELECT DISTINCT as_of_date 
         FROM pool_loans 
-        WHERE property_state = %s
+        WHERE property_state = ?
         ORDER BY as_of_date
     """, (state,))
     
@@ -140,13 +137,13 @@ def analyze_disaster_impact(state, disaster_date_str, months_before=3, months_af
             as_of_date,
             COUNT(*) as total_loans,
             SUM(CASE WHEN months_delinquent > 0 THEN 1 ELSE 0 END) as dq_loans,
-            ROUND(SUM(CASE WHEN months_delinquent > 0 THEN 1 ELSE 0 END)::DECIMAL / 
+            ROUND(CAST(SUM(CASE WHEN months_delinquent > 0 THEN 1 ELSE 0 END) AS FLOAT) / 
                 COUNT(*) * 100, 4) as dq_rate,
             COALESCE(SUM(unpaid_principal_balance), 0) as total_upb,
             COALESCE(SUM(CASE WHEN months_delinquent > 0 THEN unpaid_principal_balance ELSE 0 END), 0) as dq_upb
         FROM pool_loans
-        WHERE property_state = %s
-            AND as_of_date <= %s
+        WHERE property_state = ?
+            AND as_of_date <= ?
         GROUP BY as_of_date
         ORDER BY as_of_date
     """, (state, pre_end))
@@ -168,13 +165,13 @@ def analyze_disaster_impact(state, disaster_date_str, months_before=3, months_af
             as_of_date,
             COUNT(*) as total_loans,
             SUM(CASE WHEN months_delinquent > 0 THEN 1 ELSE 0 END) as dq_loans,
-            ROUND(SUM(CASE WHEN months_delinquent > 0 THEN 1 ELSE 0 END)::DECIMAL / 
+            ROUND(CAST(SUM(CASE WHEN months_delinquent > 0 THEN 1 ELSE 0 END) AS FLOAT) / 
                 COUNT(*) * 100, 4) as dq_rate,
             COALESCE(SUM(unpaid_principal_balance), 0) as total_upb,
             COALESCE(SUM(CASE WHEN months_delinquent > 0 THEN unpaid_principal_balance ELSE 0 END), 0) as dq_upb
         FROM pool_loans
-        WHERE property_state = %s
-            AND as_of_date > %s
+        WHERE property_state = ?
+            AND as_of_date > ?
         GROUP BY as_of_date
         ORDER BY as_of_date
     """, (state, pre_end))
@@ -218,7 +215,7 @@ def calculate_historical_cure_rate(state=None):
     state_filter = ""
     params = []
     if state:
-        state_filter = "AND a.property_state = %s"
+        state_filter = "AND a.property_state = ?"
         params.append(state)
     
     # Find loans that were delinquent in an earlier month and check if they cured (became current) in a later month
@@ -275,7 +272,7 @@ def calculate_historical_loss_severity(state=None):
     state_filter = ""
     params = []
     if state:
-        state_filter = "AND property_state = %s"
+        state_filter = "AND property_state = ?"
         params.append(state)
     
     cur.execute(f"""
@@ -364,7 +361,7 @@ def generate_calibration_report(state=None):
     state_filter = ""
     params = []
     if state:
-        state_filter = "WHERE property_state = %s"
+        state_filter = "WHERE property_state = ?"
         params.append(state)
     
     cur.execute(f"""
@@ -509,7 +506,7 @@ def auto_calibrate():
             property_state,
             COUNT(*) as total,
             SUM(CASE WHEN months_delinquent > 0 THEN 1 ELSE 0 END) as dq,
-            ROUND(SUM(CASE WHEN months_delinquent > 0 THEN 1 ELSE 0 END)::DECIMAL / COUNT(*) * 100, 4) as dq_rate
+            ROUND(CAST(SUM(CASE WHEN months_delinquent > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) * 100, 4) as dq_rate
         FROM pool_loans
         GROUP BY property_state
         HAVING COUNT(*) >= 10

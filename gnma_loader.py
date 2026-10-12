@@ -357,7 +357,10 @@ def load_file(conn, path, report_date=None, force=False):
 
 
 def inbox_files(folder):
-    return sorted(p for p in Path(folder).iterdir()
+    # Also looks one folder down, where an extracted zip usually lands (Downloads\llmon_202609\llmon_202609.txt)
+    folder = Path(folder)
+    candidates = list(folder.glob('*')) + list(folder.glob('*/*'))
+    return sorted(p for p in candidates
                   if p.is_file() and p.suffix.lower() in ('.txt', '.zip') and classify(p)[0])
 
 

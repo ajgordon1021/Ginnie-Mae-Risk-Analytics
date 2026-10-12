@@ -1,24 +1,19 @@
-import pandas as pd
-import psycopg2
 from datetime import datetime
 
+from db_config import get_connection
 
-conn = psycopg2.connect(
-    host="localhost",
-    database="Ginnie_Mae_Concentration_Risk",
-    user="katherinezeller"
-)
+# Azure SQL connection
+conn = get_connection()
 cur = conn.cursor()
 
 # Read the file
-filepath = "/Users/katherinezeller/Documents/MF_Data.txt"  # UPDATE THIS PATH
+filepath = "/Users/katherinezeller/Downloads/mfplmon4_202606.txt"  # UPDATE THIS PATH
 
 with open(filepath, 'r', encoding='latin-1') as f:
     lines = f.readlines()
 
 print(f"Total lines: {len(lines)}")
 
-# Helper function to parse dates in CCYYMMDD format
 def parse_date(val):
     if not val or val.strip() == '':
         return None
@@ -32,7 +27,6 @@ def parse_date(val):
         return None
     return None
 
-# Helper to parse numeric values
 def parse_num(val):
     if not val or val.strip() == '':
         return None
@@ -55,7 +49,6 @@ def clean_str(val):
     val = val.strip()
     return val if val else None
 
-# Track unique issuers
 issuers_seen = set()
 m_count = 0
 n_count = 0
@@ -69,18 +62,18 @@ for i, line in enumerate(lines):
     
     if record_type == 'M':
         try:
-            # Extract issuer info (P9-P16)
             issuer_num = parse_int(fields[9])
             
             if issuer_num and issuer_num not in issuers_seen:
                 cur.execute("""
+                    IF NOT EXISTS (SELECT 1 FROM issuers WHERE issuer_number = ?)
                     INSERT INTO issuers (
                         issuer_number, issuer_name, issuer_address_1,
                         issuer_address_2, issuer_city, issuer_state,
                         issuer_zip_1, issuer_zip_2
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (issuer_number) DO NOTHING
+                    ) VALUES (?,?,?,?,?,?,?,?)
                 """, (
+                    issuer_num,
                     issuer_num,
                     clean_str(fields[10]),
                     clean_str(fields[11]),
@@ -90,10 +83,11 @@ for i, line in enumerate(lines):
                     clean_str(fields[15]),
                     clean_str(fields[16])
                 ))
+                conn.commit()
                 issuers_seen.add(issuer_num)
             
-            # Insert pool_loan record
             cur.execute("""
+                IF NOT EXISTS (SELECT 1 FROM pool_loans WHERE cusip = ? AND as_of_date = ?)
                 INSERT INTO pool_loans (
                     cusip, pool_number, pool_indicator, pool_type,
                     security_interest_rate, pool_issue_date, pool_maturity_date,
@@ -123,85 +117,87 @@ for i, line in enumerate(lines):
                     fha_program_section_code, insurance_type,
                     as_of_date, green_status, affordable_status
                 ) VALUES (
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s,%s,%s
+                    ?,?,?,?,?,?,?,?,?,?,
+                    ?,?,?,?,?,?,?,?,?,?,
+                    ?,?,?,?,?,?,?,?,?,?,
+                    ?,?,?,?,?,?,?,?,?,?,
+                    ?,?,?,?,?,?,?,?,?,?,
+                    ?,?,?,?,?,?,?,?,?,?,
+                    ?,?,?,?,?,?,?,?
                 )
-                ON CONFLICT (cusip, as_of_date) DO NOTHING
             """, (
-                clean_str(fields[1]),          # cusip
-                clean_str(fields[2]),          # pool_number
-                clean_str(fields[3]),          # pool_indicator
-                clean_str(fields[4]),          # pool_type
-                parse_num(fields[5]),          # security_interest_rate
-                parse_date(fields[6]),         # pool_issue_date
-                parse_date(fields[7]),         # pool_maturity_date
-                parse_num(fields[8]),          # original_aggregate_amount
-                parse_int(fields[9]),          # issuer_number
-                parse_num(fields[17]),         # pool_upb
-                parse_int(fields[18]),         # num_loans_in_pool
-                parse_int(fields[19]),         # num_loans_30d_dq
-                parse_num(fields[20]),         # upb_30d_dq
-                parse_num(fields[21]),         # pct_upb_30d_dq
-                parse_int(fields[22]),         # num_loans_60d_dq
-                parse_num(fields[23]),         # upb_60d_dq
-                parse_num(fields[24]),         # pct_upb_60d_dq
-                parse_int(fields[25]),         # num_loans_90plus_dq
-                parse_num(fields[26]),         # upb_90plus_dq
-                parse_num(fields[27]),         # pct_upb_90plus_dq
-                parse_num(fields[28]),         # security_rpb
-                parse_num(fields[29]),         # rpb_factor
-                parse_num(fields[30]),         # project_loan_security_rate
-                parse_num(fields[31]),         # estimated_mortgage_amount
-                parse_int(fields[32]),         # disclosure_seq_number
-                clean_str(fields[33]),         # case_number
-                clean_str(fields[34]),         # agency_type
-                clean_str(fields[35]),         # loan_type
-                parse_int(fields[36]),         # loan_term
-                parse_date(fields[37]),        # first_payment_date
-                parse_date(fields[38]),        # loan_maturity_date
-                parse_num(fields[39]),         # loan_interest_rate
-                clean_str(fields[40]),         # modified_loan_indicator
-                clean_str(fields[41]),         # non_level_payments_indicator
-                clean_str(fields[42]),         # mature_loan_cert_flag
-                parse_date(fields[43]),        # loan_origination_date
-                parse_date(fields[44]),        # initial_endorsement_date
-                parse_date(fields[45]),        # final_endorsement_date
-                parse_int(fields[46]),         # lockout_term
-                parse_date(fields[47]),        # lockout_period_end_date
-                parse_int(fields[48]),         # prepayment_premium_period
-                parse_date(fields[49]),        # prepayment_end_date
-                parse_date(fields[50]),        # interest_approval_date
-                clean_str(fields[51]),         # prepayment_penalty_flag
-                parse_num(fields[52]),         # original_principal_balance
-                parse_num(fields[53]),         # upb_at_issuance
-                parse_num(fields[54]),         # unpaid_principal_balance
-                clean_str(fields[55]),         # draw_number
-                parse_num(fields[56]),         # approved_draw_amount
-                parse_int(fields[57]),         # months_delinquent
-                clean_str(fields[58]),         # current_month_liquidation
-                parse_int(fields[59]),         # removal_reason
-                parse_int(fields[60]),         # seller_issuer_id
-                clean_str(fields[61]),         # property_name
-                clean_str(fields[62]),         # property_street
-                clean_str(fields[63]),         # property_city
-                clean_str(fields[64]),         # property_state
-                clean_str(fields[65]),         # property_zip
-                clean_str(fields[66]),         # msa
-                parse_int(fields[67]),         # number_of_units
-                parse_num(fields[68]),         # current_pi_amount
-                clean_str(fields[69]),         # prepayment_description
-                clean_str(fields[70]),         # nlp_adjustment_description
-                clean_str(fields[71]),         # fha_program_section_code
-                clean_str(fields[72]),         # insurance_type
-                clean_str(fields[73]),         # as_of_date
-                clean_str(fields[74]),         # green_status
-                clean_str(fields[75]),         # affordable_status
+                clean_str(fields[1]),           # cusip (for EXISTS check)
+                clean_str(fields[73]),          # as_of_date (for EXISTS check)
+                clean_str(fields[1]),
+                clean_str(fields[2]),
+                clean_str(fields[3]),
+                clean_str(fields[4]),
+                parse_num(fields[5]),
+                parse_date(fields[6]),
+                parse_date(fields[7]),
+                parse_num(fields[8]),
+                parse_int(fields[9]),
+                parse_num(fields[17]),
+                parse_int(fields[18]),
+                parse_int(fields[19]),
+                parse_num(fields[20]),
+                parse_num(fields[21]),
+                parse_int(fields[22]),
+                parse_num(fields[23]),
+                parse_num(fields[24]),
+                parse_int(fields[25]),
+                parse_num(fields[26]),
+                parse_num(fields[27]),
+                parse_num(fields[28]),
+                parse_num(fields[29]),
+                parse_num(fields[30]),
+                parse_num(fields[31]),
+                parse_int(fields[32]),
+                clean_str(fields[33]),
+                clean_str(fields[34]),
+                clean_str(fields[35]),
+                parse_int(fields[36]),
+                parse_date(fields[37]),
+                parse_date(fields[38]),
+                parse_num(fields[39]),
+                clean_str(fields[40]),
+                clean_str(fields[41]),
+                clean_str(fields[42]),
+                parse_date(fields[43]),
+                parse_date(fields[44]),
+                parse_date(fields[45]),
+                parse_int(fields[46]),
+                parse_date(fields[47]),
+                parse_int(fields[48]),
+                parse_date(fields[49]),
+                parse_date(fields[50]),
+                clean_str(fields[51]),
+                parse_num(fields[52]),
+                parse_num(fields[53]),
+                parse_num(fields[54]),
+                clean_str(fields[55]),
+                parse_num(fields[56]),
+                parse_int(fields[57]),
+                clean_str(fields[58]),
+                parse_int(fields[59]),
+                parse_int(fields[60]),
+                clean_str(fields[61]),
+                clean_str(fields[62]),
+                clean_str(fields[63]),
+                clean_str(fields[64]),
+                clean_str(fields[65]),
+                clean_str(fields[66]),
+                parse_int(fields[67]),
+                parse_num(fields[68]),
+                clean_str(fields[69]),
+                clean_str(fields[70]),
+                clean_str(fields[71]),
+                clean_str(fields[72]),
+                clean_str(fields[73]),
+                clean_str(fields[74]),
+                clean_str(fields[75]),
             ))
+            conn.commit()
             m_count += 1
             
         except Exception as e:
@@ -219,7 +215,7 @@ for i, line in enumerate(lines):
                     disclosure_seq_number, effective_date,
                     security_interest_rate, mortgage_interest_rate,
                     principal_and_interest
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ) VALUES (?,?,?,?,?,?,?,?,?)
             """, (
                 clean_str(fields[1]),
                 clean_str(fields[2]),
@@ -231,19 +227,17 @@ for i, line in enumerate(lines):
                 parse_num(fields[8]),
                 parse_num(fields[9])
             ))
+            conn.commit()
             n_count += 1
         except Exception as e:
             conn.rollback()
             errors += 1
             if errors <= 5:
-                print(f"Error on line {i+1}: {e}")
-                print(f"  Fields count: {len(fields)}")
+                print(f"NLP Error on line {i+1}: {e}")
 
-    
     if (i + 1) % 5000 == 0:
         print(f"Processed {i+1} lines...")
 
-conn.commit()
 cur.close()
 conn.close()
 

@@ -1,4 +1,5 @@
 import os
+import time
 from getpass import getpass
 from urllib.parse import quote_plus
 
@@ -35,9 +36,21 @@ def _connection_string():
     )
 
 
-def get_connection():
-    # Login timeout in seconds; long enough for a paused serverless database to wake up
-    return pyodbc.connect(_connection_string(), timeout=60)
+# Azure errors that mean "waking up / busy, try again" (40613 = paused serverless database resuming)
+_TRANSIENT_ERRORS = ('40613', '40197', '40501', '49918', '49919', '49920')
+
+
+def get_connection(retries=10, wait_seconds=30):
+    # A paused serverless database refuses connections for a minute or two while it resumes
+    for attempt in range(1, retries + 1):
+        try:
+            # Login timeout in seconds; long enough for a paused serverless database to wake up
+            return pyodbc.connect(_connection_string(), timeout=60)
+        except pyodbc.Error as e:
+            if attempt == retries or not any(code in str(e) for code in _TRANSIENT_ERRORS):
+                raise
+            print(f'Database is waking up, retrying in {wait_seconds} seconds ({attempt}/{retries})...', flush=True)
+            time.sleep(wait_seconds)
 
 
 def get_engine():

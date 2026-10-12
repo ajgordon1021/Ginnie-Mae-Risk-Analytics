@@ -2,6 +2,7 @@
 
 Handles two downloads, as .txt or .zip:
   - loan-level monthly file (llmon_YYYYMM, llmon1_YYYYMM, llmon2_YYYYMM): 'LL' records
+    -> SF_mbs_loan_level (every field of the file; holds the most recently loaded file)
     -> gnma_static_table (one row per loan, kept up to date)
     -> mbs_loans_monthly (one row per loan per month)
   - liquidations file (llmonliq_YYYYMM): 'LR' records -> mbs_monthly_liquidations
@@ -48,13 +49,7 @@ LIQUIDATION_FIELDS = [
     'original_principal_balance', 'unpaid_principal_balance', 'liquidation_balance', 'removal_reason',
 ]
 
-# Only the fields the analysis tables use are uploaded
-STAGED_LOAN_FIELDS = [
-    'disclosure_sequence_number', 'issuer_id', 'agency', 'state_code', 'msa',
-    'original_principal_balance', 'loan_interest_rate', 'loan_to_value', 'credit_score',
-    'loan_origination_date', 'down_payment_assistance', 'first_time_home_buyer', 'seller_issuer_id',
-    'unpaid_principal_balance', 'loan_age', 'months_delinquent',
-]
+# Only the fields the liquidation table uses are uploaded
 STAGED_LIQUIDATION_FIELDS = [
     'disclosure_sequence_number', 'issuer_id', 'cusip_number', 'pool_id', 'agency_type',
     'loan_purpose', 'original_principal_balance', 'unpaid_principal_balance', 'liquidation_balance',
@@ -68,7 +63,7 @@ def _staging_ddl(table, fields):
 
 
 SCHEMA = [
-    _staging_ddl('gnma_staging_loans', STAGED_LOAN_FIELDS),
+    _staging_ddl('SF_mbs_loan_level', LOAN_FIELDS),
     _staging_ddl('gnma_staging_liquidations', STAGED_LIQUIDATION_FIELDS),
     """IF OBJECT_ID(N'gnma_static_table', N'U') IS NULL CREATE TABLE gnma_static_table (
     disclosure_sequence_number VARCHAR(20) NOT NULL PRIMARY KEY,
@@ -146,7 +141,7 @@ USING (
            s.first_time_home_buyer,
            TRY_CAST(s.seller_issuer_id AS INT) AS seller_issuer_id,
            s.agency
-    FROM """ + _DEDUPED.format(table='gnma_staging_loans') + """
+    FROM """ + _DEDUPED.format(table='SF_mbs_loan_level') + """
 ) AS src
 ON t.disclosure_sequence_number = src.disclosure_sequence_number
 WHEN MATCHED THEN UPDATE SET
@@ -175,7 +170,7 @@ WHEN NOT MATCHED THEN INSERT (
     # Reloading a file replaces that month's rows for its loans
     """DELETE m FROM mbs_loans_monthly m
 WHERE m.report_date = ?
-  AND EXISTS (SELECT 1 FROM gnma_staging_loans s WHERE s.disclosure_sequence_number = m.disclosure_sequence_number)""",
+  AND EXISTS (SELECT 1 FROM SF_mbs_loan_level s WHERE s.disclosure_sequence_number = m.disclosure_sequence_number)""",
     """INSERT INTO mbs_loans_monthly (
     disclosure_sequence_number, report_date, issuer_id, unpaid_principal_balance,
     loan_age_months, months_delinquent, delinquency_status, created_at
@@ -188,7 +183,7 @@ SELECT s.disclosure_sequence_number,
        COALESCE(TRY_CAST(s.months_delinquent AS INT), 0),
        CASE WHEN TRY_CAST(s.months_delinquent AS INT) = 0 THEN 'Current' ELSE 'Delinquent' END,
        SYSDATETIME()
-FROM """ + _DEDUPED.format(table='gnma_staging_loans'),
+FROM """ + _DEDUPED.format(table='SF_mbs_loan_level'),
 ]
 
 LIQUIDATION_STATEMENTS = [
@@ -232,8 +227,8 @@ JOIN (
 
 FILE_TYPES = {
     # name pattern, record prefix, all fields in the record, fields uploaded, staging table, statements
-    'loans': (re.compile(r'^llmon\d?_(\d{6})', re.I), 'LL', LOAN_FIELDS, STAGED_LOAN_FIELDS,
-              'gnma_staging_loans', LOAN_STATEMENTS),
+    'loans': (re.compile(r'^llmon\d?_(\d{6})', re.I), 'LL', LOAN_FIELDS, LOAN_FIELDS,
+              'SF_mbs_loan_level', LOAN_STATEMENTS),
     'liquidations': (re.compile(r'^llmonliq\d?_(\d{6})', re.I), 'LR', LIQUIDATION_FIELDS,
                      STAGED_LIQUIDATION_FIELDS, 'gnma_staging_liquidations', LIQUIDATION_STATEMENTS),
 }
@@ -345,7 +340,9 @@ def load_file(conn, path, report_date=None, force=False):
         cur.execute('DELETE FROM gnma_load_log WHERE file_name = ?', path.name)
         cur.execute('INSERT INTO gnma_load_log (file_name, file_type, report_date, rows_loaded, loaded_at) '
                     'VALUES (?, ?, ?, ?, SYSDATETIME())', path.name, file_type, report_date, rows)
-        cur.execute(f'TRUNCATE TABLE {staging_table}')
+        # The loan-level table keeps the file's rows, like the old temp table
+        if file_type == 'liquidations':
+            cur.execute(f'TRUNCATE TABLE {staging_table}')
         conn.commit()
     except Exception:
         conn.rollback()

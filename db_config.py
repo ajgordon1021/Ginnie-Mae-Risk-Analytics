@@ -88,3 +88,12 @@ def insert_rows(conn, table, rows, columns=None):
     cur.fast_executemany = True
     cur.executemany(f'INSERT INTO {table}{cols} VALUES ({placeholders})', rows)
     cur.close()
+
+
+def insert_df(conn, table, df, columns=None, chunk_size=100_000):
+    # Insert a large DataFrame in chunks, committing each one, so memory stays manageable
+    columns = list(columns or df.columns)
+    for start in range(0, len(df), chunk_size):
+        insert_rows(conn, table, df_rows(df[columns].iloc[start:start + chunk_size]), columns)
+        conn.commit()
+        print(f'  {min(start + chunk_size, len(df)):,} of {len(df):,} rows inserted', flush=True)
